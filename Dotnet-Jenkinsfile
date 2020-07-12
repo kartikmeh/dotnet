@@ -1,0 +1,121 @@
+import hudson.FilePath
+import hudson.model.Node
+import hudson.model.Slave
+import jenkins.model.Jenkins
+
+def GetSonarDetails ()
+{
+	echo "inside sonar details function"
+	sonarprops = readProperties  file: '.sonarqube/out/.sonar/report-task.txt'
+	println sonarprops
+
+	powershell '''
+	$username = ""
+	$password = ""
+	$authInfo = ("{0}:{1}" -f $username,$password)
+	$authInfo = [System.Text.Encoding]::UTF8.GetBytes($authInfo)
+	$authInfo = [System.Convert]::ToBase64String($authInfo)
+	$headers = @{Authorization=("Basic {0}" -f $authInfo)}
+
+	$res = Invoke-RestMethod -Uri "http://sonar.nagarro.com/api/measures/component?componentKey=helloworld-dotnet&metricKeys=bugs,vulnerabilities,code_smells" -Headers $headers
+				$outtext=""
+				foreach ($name in $res.component.measures) {
+					if ($outtext -ne ""){
+						$outtext="$($outtext)`n"
+					}
+					$outtext="$($outtext)$($name.metric)=$($name.value)"
+				}
+				Set-Content -Path "projectStatus.txt" -Value $outtext
+				'''	
+}
+
+pipeline{
+	agent {
+//	label "Devops_POC_Linux || Linux_Slave"
+//	label fn
+	label "Windows_Slave"
+	}
+
+options
+   {
+      // Append time stamp to the console output.
+      timestamps()
+      
+      timeout(time: 1, unit: 'HOURS')
+      
+      // Do not automatically checkout the SCM on every stage. We stash what
+      // we need to save time.
+     // skipDefaultCheckout()
+      
+      // Discard old builds after 10 days or 30 builds count.
+      buildDiscarder(logRotator(daysToKeepStr: '5', numToKeepStr: '5'))
+   }
+     
+  stages{
+	
+		stage ('checkout')
+       {
+          steps
+		  {
+				echo  " ********** Clone starts ******************"
+		         checkout scm
+				 
+		  }
+       }
+	   stage ('nuget')
+       {
+          steps
+		  {
+				bat '''
+					"../../nuget/NuGet.exe" restore "SampleMvcWebApp.sln"
+				'''
+				 
+		  }
+       }
+
+		stage ('Start sonarqube analysis')
+		{
+		steps{
+			withSonarQubeEnv('sonar_linux_slave')
+			{
+					bat '''
+					"C:\\Jenkins\\tools\\sonar-scanner-msbuild-2.2.0.24\\SonarQube.Scanner.MSBuild.exe" begin /k:"helloworld-dotnet" /n:"helloworld-dotnet" /v:1.0
+					'''
+				}
+		}
+		}
+		stage ('build')
+		{
+		steps
+		{
+			//withSonarQubeEnv('sonar_linux_slave')
+			script
+			{	
+				bat '''
+					"C:\\Program Files (x86)\\MSBuild\\14.0\\Bin\\MsBuild.exe" SampleMvcWebApp.sln /t:Rebuild
+				'''
+			}
+		}	
+		}
+		stage ('SonarQube Analysis end'){
+		
+			steps{
+			    withSonarQubeEnv('sonar_linux_slave')
+				{
+					bat '''
+					C:\\Jenkins\\tools\\sonar-scanner-msbuild-2.2.0.24\\SonarQube.Scanner.MSBuild.exe end
+					'''
+				}
+			}
+		}			
+}
+
+ post {
+        always {
+		echo "post section"
+		deleteDir()
+		//	GetSonarDetails ()
+		//	EmailNotification ()
+        }
+    }
+}

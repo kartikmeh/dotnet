@@ -1,0 +1,64 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<jenkins-jobs>
+	<jenkins-job>
+		<template>BASIC-DOTNET</template> 
+			<build>
+				<property>
+					<name>solutionFile</name>  
+					<value>SampleMvcWebApp.sln</value> 
+				</property>   
+				<property>  
+					<name>cmdLineArgs</name>   
+					<value>/t:clean;build</value>
+				</property>     
+				<property>  
+					<name>jobSchedule</name>
+					<value>2 25 * * *</value>
+				</property> 
+				<property>
+					<name>labelExpr</name>
+					<value>Windows_Slave</value>
+				</property>
+				
+<!-- 				 <property>   -->
+<!-- 				<name>buildType</name>   -->
+<!-- 				 <value>pipeline</value> 	   -->
+<!-- 			 </property> -->
+			</build>      
+			<testExecution>
+				<property>
+					<name>pathtotestdlls</name> 
+					<value>BusinessLayerTests//bin//Debug//BusinessLayerTests.dll,BusinessLayerTests//bin//Debug//Microsoft.VisualStudio.QualityTools.UnitTestFramework.dll</value>
+				</property>
+				<property> 
+					<name>UnitTestTool</name> 
+					<value>mstest</value> 
+				</property>
+			</testExecution>   
+					<jira>
+			<property>   
+				<name>project</name>    
+				<value>DEVOC</value>   
+			</property>
+			<property>
+				<name>id</name>  
+				<value>DEVOC-322</value>
+			</property>
+			<property> 
+				<name>comment</name>
+				<value>Pipeline has been executed</value>
+			</property>
+		</jira>
+			<sonar>     
+				<property> 
+					<!-- <name>projectVersion</name>    -->
+					<name>projectVersion</name>
+					<value>1.0</value>
+				</property>  
+				<property>
+					<name>additionalArgs</name>
+					<value>/d:sonar.sourceEncoding=UTF-8</value>
+				</property>
+			</sonar>  
+	</jenkins-job>
+</jenkins-jobs>

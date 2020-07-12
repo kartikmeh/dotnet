@@ -1,0 +1,183 @@
+import hudson.FilePath
+import hudson.model.Node
+import hudson.model.Slave
+import jenkins.model.Jenkins
+
+@NonCPS
+def getFreeNode() {
+    // Jenkins jenkins = Jenkins.instance
+    // def jenkinsNodes =jenkins.nodes
+    def freeNode = null
+    while(freeNode == null) {
+        for (node in hudson.model.Hudson.instance.slaves) 
+        {
+		    if(['Windows_Slave'].contains(node.getLabelString())) {
+			    println "Node============================"
+				// println node.nodeName
+				// println node.getLabelString()
+				// println node.getComputer()
+				// println node.getComputer().isOffline()
+				// println node.getComputer().countBusy()
+		
+				// sleep(1000)
+				// Make sure slave is online
+				if (!node.getComputer().isOffline()) 
+				{           
+					//Make sure that the slave busy executor number is 0.
+					if(node.getComputer().countBusy()==0)
+					{
+						freeNode = node.getLabelString()
+
+						break
+						// return 0
+					}
+					else
+					{
+						println "$node.nodeName' is busy !!!"
+						sleep(2000)
+					}
+				}
+				else
+				{
+					println "'$node.nodeName' is offline !!!" 
+					sleep(2000)
+				}
+			}
+        }
+    }
+
+    return freeNode
+}
+
+env.AGENT_NAME = "Windows_Slave" // getFreeNode() // "Devops_POC_Linux"
+println env.AGENT_NAME + " IS READY TO TAKE JOB!!!"
+
+def GetSonarDetails ()
+{
+	echo "inside sonar details function"
+	sonarprops = readProperties  file: '.sonarqube/out/.sonar/report-task.txt'
+	println sonarprops
+
+	powershell '''
+	$username = ""
+	$password = ""
+	$authInfo = ("{0}:{1}" -f $username,$password)
+	$authInfo = [System.Text.Encoding]::UTF8.GetBytes($authInfo)
+	$authInfo = [System.Convert]::ToBase64String($authInfo)
+	$headers = @{Authorization=("Basic {0}" -f $authInfo)}
+
+	$res = Invoke-RestMethod -Uri "http://sonar.nagarro.com/api/measures/component?componentKey=helloworld-dotnet&metricKeys=bugs,vulnerabilities,code_smells" -Headers $headers
+				$outtext=""
+				foreach ($name in $res.component.measures) {
+					if ($outtext -ne ""){
+						$outtext="$($outtext)`n"
+					}
+					$outtext="$($outtext)$($name.metric)=$($name.value)"
+				}
+				Set-Content -Path "projectStatus.txt" -Value $outtext
+				'''	
+}
+
+pipeline{
+	agent {
+		label "${env.AGENT_NAME}"
+	}
+
+options
+   {
+      // Append time stamp to the console output.
+      timestamps()
+      
+      timeout(time: 10, unit: 'MINUTES')
+      
+      // Do not automatically checkout the SCM on every stage. We stash what
+      // we need to save time.
+      skipDefaultCheckout()
+      
+      // Discard old builds after 10 days or 30 builds count.
+      buildDiscarder(logRotator(daysToKeepStr: '5', numToKeepStr: '5'))
+   }
+     
+  stages{
+	
+		stage ('checkout')
+       {
+          steps
+		  {
+				echo  " ********** Clone starts ******************"
+		         checkout scm
+				 
+		  }
+       }
+
+		
+		stage ('SonarQube Analysis'){
+		
+			steps{
+			    withSonarQubeEnv('sonar_linux_slave')
+				{
+					bat '''
+					"C:\\Jenkins\\tools\\sonar-scanner-msbuild-2.2.0.24\\SonarQube.Scanner.MSBuild.exe" begin /k:"helloworld-dotnet" /n:"helloworld-dotnet" /v:1.0
+					"C:\\Program Files (x86)\\MSBuild\\14.0\\Bin\\MsBuild.exe" /t:Rebuild
+					C:\\Jenkins\\tools\\sonar-scanner-msbuild-2.2.0.24\\SonarQube.Scanner.MSBuild.exe end'''
+					bat 'set'
+					stash includes: '.sonarqube\\out\\.sonar\\report-task.txt', name: 'sonarfile'
+				}
+			}
+		}
+		
+		stage("Quality Gate Status Check"){
+		    environment {
+			    SONAR_PROPS = readProperties  file: ".sonarqube\\out\\.sonar\\report-task.txt"
+				
+			}
+		    steps {
+			unstash 'sonarfile'
+				 
+				withCredentials([[$class: 'UsernamePasswordMultiBinding', credentialsId: 'sonar',
+					usernameVariable: 'USERNAME', passwordVariable: 'PASSWORD']]) {
+
+					script {
+					    timeout(time: 10, unit: 'MINUTES') {
+							waitUntil {
+								SONAR_PROPS = readProperties  file: ".sonarqube\\out\\.sonar\\report-task.txt"
+								env.SONAR_TASK_URL = "$SONAR_PROPS.ceTaskUrl"
+								try{
+									powershell '''
+										$username = "$env:USERNAME"
+										$password = "$env:PASSWORD"
+										Write-Host 'CALLING:'
+										$uri = "$env:SONAR_TASK_URL"
+										Write-Host $uri
+										$authInfo = ("{0}:{1}" -f $username,$password)
+										$authInfo = [System.Text.Encoding]::UTF8.GetBytes($authInfo)
+										$authInfo = [System.Convert]::ToBase64String($authInfo)
+										$headers = @{Authorization=("Basic {0}" -f $authInfo)}
+
+										$res = Invoke-RestMethod -Uri "$uri" -Headers $headers
+										Write-Host $res.task.status
+										If (($res.task.status -eq \'PENDING\') -or ($res.task.status -eq \'IN_PROGRESS\')) 
+										{
+											exit 1
+										}
+										Write-Host "Quality gate Success reported."
+									'''
+								}
+								catch(e){
+									return false
+								}
+								return true
+							}
+						}
+					}
+				}
+		    }
+        }
+	}
+
+	post {
+        always {
+		echo "post section"
+        }
+    }
+}

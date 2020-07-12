@@ -1,0 +1,1 @@
+"C:\BuildConfigs\opencover.4.6.519\OpenCover.Console.exe" -register -target:"C:\Program Files (x86)\Microsoft Visual Studio 14.0\Common7\IDE\mstest.exe" -targetargs:"/testcontainer:\"BusinessLayerTests/bin/Debug/BusinessLayerTests.dll\" /resultsfile:testresults.trx" -filter:"+[*]*" -mergebyhash -output:coveragereport.xml
